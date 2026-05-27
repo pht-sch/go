@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Q版可愛圍棋 Mini Puyo Go (視覺優化版)</title>
+    <style>
+        :root {
+            --board-color: #f0d9b5;
+            --line-color: #b58863;
+            --stone-size: 66px; 
+            --cell-size: 70px;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f7f9fa;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        h1 { color: #333; margin-bottom: 5px; }
+        #status { font-size: 1.2rem; margin-bottom: 15px; font-weight: bold; color: #555; }
+
+        .board-container {
+            position: relative;
+            background-color: var(--board-color);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(5, var(--cell-size));
+            grid-template-rows: repeat(5, var(--cell-size));
+            position: relative;
+        }
+
+        .intersection {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .intersection::before, .intersection::after {
+            content: ""; position: absolute; background-color: var(--line-color); z-index: 1;
+        }
+        .intersection::before { top: 50%; left: 0; width: 100%; height: 2px; transform: translateY(-50%); }
+        .intersection::after { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
+        .intersection.top::after { top: 50%; height: 50%; }
+        .intersection.bottom::after { height: 50%; }
+        .intersection.left::before { left: 50%; width: 50%; }
+        .intersection.right::before { width: 50%; }
+
+        .center-dot {
+            width: 8px; height: 8px; background-color: var(--line-color);
+            border-radius: 50%; position: absolute; z-index: 1;
+            top: calc(50% - 4px); left: calc(50% - 4px);
+        }
+
+        .stone-container {
+            position: absolute;
+            width: 100%; height: 100%;
+            z-index: 2;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+        }
+
+        .stone {
+            width: var(--stone-size);
+            height: var(--stone-size);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem; font-weight: bold;
+            user-select: none;
+            transition: all 0.15s ease-in-out;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+            z-index: 3;
+            /* 防止棋子內的表情換行 */
+            white-space: nowrap;
+        }
+
+        .stone.black { background-color: #2c3e50; color: #ffffff; }
+        .stone.white { background-color: #ffffff; color: #2c3e50; border: 1px solid #ccc; width: calc(var(--stone-size) - 2px); height: calc(var(--stone-size) - 2px); }
+
+        /* 相連黏合樣式 */
+        .stone.connect-top { border-top-left-radius: 15%; border-top-right-radius: 15%; height: calc(var(--stone-size) + 6px); transform: translateY(-3px); }
+        .stone.connect-bottom { border-bottom-left-radius: 15%; border-bottom-right-radius: 15%; height: calc(var(--stone-size) + 6px); transform: translateY(3px); }
+        .stone.connect-left { border-top-left-radius: 15%; border-bottom-left-radius: 15%; width: calc(var(--stone-size) + 6px); transform: translateX(-3px); }
+        .stone.connect-right { border-top-right-radius: 15%; border-bottom-right-radius: 15%; width: calc(var(--stone-size) + 6px); transform: translateX(3px); }
+
+        .btn-group { margin-top: 20px; display: flex; gap: 10px; }
+        button {
+            padding: 10px 24px; font-size: 1.1rem; border: none; border-radius: 8px;
+            cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: background 0.2s; color: white;
+            font-weight: bold;
+        }
+        #restart { background-color: #e67e22; }
+        #judge { background-color: #2ecc71; }
+        #show-help { background-color: #3498db; }
+
+        /* --- 修正與加大後的說明畫面 --- */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 100;
+        }
+        .modal-overlay.hidden { display: none; }
+
+        .modal-content {
+            background-color: white; padding: 40px; border-radius: 24px;
+            max-width: 850px; /* 大幅增加寬度 */
+            width: 90%; 
+            box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+            text-align: center;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-content h2 { 
+            color: #2c3e50; 
+            margin-top: 0; 
+            font-size: 2.2rem; 
+            margin-bottom: 20px;
+        }
+
+        .modal-content p.intro { 
+            color: #555; 
+            font-size: 1.2rem; 
+            margin-bottom: 30px;
+            line-height: 1.6;
+            text-align: center;
+        }
+        
+        /* 規則卡片優化 */
+        .rule-card {
+            background-color: #fcfcfc;
+            border: 1px solid #eee;
+            border-left: 8px solid #3498db;
+            padding: 20px 30px;
+            margin: 15px 0;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 25px;
+            text-align: left;
+        }
+
+        .rule-icon { 
+            font-size: 3rem; 
+            min-width: 100px; 
+            text-align: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* 關鍵：強制顏文字不換行 */
+            white-space: nowrap; 
+            font-weight: bold;
+        }
+
+        .rule-text { 
+            font-size: 1.1rem; 
+            color: #444; 
+            line-height: 1.6;
+        }
+
+        .rule-text strong { 
+            color: #2c3e50; 
+            font-size: 1.3rem;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .close-btn {
+            margin-top: 25px; 
+            background-color: #2c3e50; 
+            width: 100%;
+            padding: 16px; 
+            font-size: 1.3rem; 
+            font-weight: bold;
+            border-radius: 12px;
+        }
+        .close-btn:hover { background-color: #1a252f; }
+    </style>
+</head>
+<body>
+
+    <h1>Mini Puyo Go ぷよ碁</h1>
+    <div id="status">輪到：黑子 ♟️</div>
+
+    <div class="board-container">
+        <div class="board" id="board"></div>
+    </div>
+
+    <div class="btn-group">
+        <button id="judge" onclick="calculateScore()">計算勝負 (終局)</button>
+        <button id="show-help" onclick="toggleModal(true)">遊戲說明</button>
+        <button id="restart" onclick="initGame()">重新開局</button>
+    </div>
+
+    <div class="modal-overlay" id="help-modal">
+        <div class="modal-content">
+            <h2>🍡 歡迎來到 Q版可愛圍棋！</h2>
+            <p class="intro">這是一個專門為<b>圍棋零基礎</b>設計的對弈遊戲。透過棋子的動態表情，你可以在 5 秒內搞懂圍棋規則！</p>
+            
+            <div class="rule-card">
+                <div class="rule-icon">🟢</div>
+                <div class="rule-text">
+                    <strong>遊戲目標：包圍地盤</strong>
+                    黑白雙方輪流在線條的<b>交叉點</b>落子。最後圍住的「空地」加上「棋子數」多的人獲勝！
+                </div>
+            </div>
+
+            <div class="rule-card" style="border-left-color: #9b59b6;">
+                <div class="rule-icon">🤝</div>
+                <div class="rule-text">
+                    <strong>史萊姆黏黏相連</strong>
+                    當自己的棋子在上下左右相鄰時，牠們會<b>自動融合</b>，共同分享生命線（氣）！
+                </div>
+            </div>
+
+            <div class="rule-card" style="border-left-color: #2ecc71;">
+                <div class="rule-icon">( •_•)</div>
+                <div class="rule-text">
+                    <strong>呆萌平靜狀態</strong>
+                    當棋子周圍還有很多空格（氣）可以呼吸時，會保持呆萌放鬆的表情。
+                </div>
+            </div>
+
+            <div class="rule-card" style="border-left-color: #e74c3c;">
+                <div class="rule-icon" style="color: #e74c3c;">(>_<)</div>
+                <div class="rule-text">
+                    <strong>緊張求救狀態！</strong>
+                    當棋子周圍只剩下<b>最後一格空格</b>時，會露出緊張表情！請快在旁邊落子救援，否則被對手堵死就會被<b>吃掉（消失）</b>喔！
+                </div>
+            </div>
+
+            <button class="close-btn" onclick="toggleModal(false)">我懂了，開始挑戰！</button>
+        </div>
+    </div>
+
+    <script>
+        const BOARD_SIZE = 5;
+        let boardState = []; 
+        let currentPlayer = 'B'; 
+        let gameActive = true;
+
+        const boardElement = document.getElementById('board');
+        const statusElement = document.getElementById('status');
+        const helpModal = document.getElementById('help-modal');
+
+        function toggleModal(show) {
+            if (show) helpModal.classList.remove('hidden');
+            else helpModal.classList.add('hidden');
+        }
+
+        function initGame() {
+            boardElement.innerHTML = '';
+            boardState = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+            currentPlayer = 'B';
+            gameActive = true;
+            updateStatus();
+
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const cell = document.createElement('div');
+                    cell.classList.add('intersection');
+                    if (r === 0) cell.classList.add('top');
+                    if (r === BOARD_SIZE - 1) cell.classList.add('bottom');
+                    if (c === 0) cell.classList.add('left');
+                    if (c === BOARD_SIZE - 1) cell.classList.add('right');
+                    if (r === 2 && c === 2) {
+                        const dot = document.createElement('div');
+                        dot.classList.add('center-dot');
+                        cell.appendChild(dot);
+                    }
+                    const clickArea = document.createElement('div');
+                    clickArea.classList.add('stone-container');
+                    clickArea.addEventListener('click', () => handleMove(r, c));
+                    cell.appendChild(clickArea);
+                    boardElement.appendChild(cell);
+                }
+            }
+        }
+
+        function updateStatus() {
+            if (!gameActive) return;
+            statusElement.innerText = currentPlayer === 'B' ? "輪到：黑子 ♟️" : "輪到：白子 ☖";
+        }
+
+        function handleMove(r, c) {
+            if (!gameActive || boardState[r][c] !== null) return;
+            boardState[r][c] = currentPlayer;
+            const opponent = currentPlayer === 'B' ? 'W' : 'B';
+            let killedAny = false;
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (boardState[i][j] === opponent) {
+                        const block = getBlock(i, j, opponent);
+                        if (block.liberties === 0) {
+                            block.stones.forEach(s => boardState[s.r][s.c] = null);
+                            killedAny = true;
+                        }
+                    }
+                }
+            }
+            const myBlock = getBlock(r, c, currentPlayer);
+            if (myBlock.liberties === 0 && !killedAny) {
+                boardState[r][c] = null; 
+                alert("這裡沒有呼吸的空間（氣），不能下在這裡喔！");
+                return;
+            }
+            currentPlayer = opponent;
+            renderBoard();
+            updateStatus();
+        }
+
+        function getBlock(r, c, color) {
+            const stones = [];
+            const queue = [[r, c]];
+            const visited = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(false));
+            const libertiesSet = new Set();
+            visited[r][c] = true;
+            while (queue.length > 0) {
+                const [currR, currC] = queue.shift();
+                stones.push({ r: currR, c: currC });
+                const neighbors = [[currR-1, currC], [currR+1, currC], [currR, currC-1], [currR, currC+1]];
+                for (const [nr, nc] of neighbors) {
+                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                        if (boardState[nr][nc] === null) libertiesSet.add(`${nr},${nc}`);
+                        else if (boardState[nr][nc] === color && !visited[nr][nc]) {
+                            visited[nr][nc] = true; queue.push([nr, nc]);
+                        }
+                    }
+                }
+            }
+            return { stones, liberties: libertiesSet.size };
+        }
+
+        function renderBoard() {
+            const cells = boardElement.children;
+            for (let i = 0; i < cells.length; i++) {
+                const clickArea = cells[i].querySelector('.stone-container');
+                const r = Math.floor(i / BOARD_SIZE);
+                const c = i % BOARD_SIZE;
+                const oldStone = clickArea.querySelector('.stone');
+                if (oldStone) clickArea.removeChild(oldStone);
+                const color = boardState[r][c];
+                if (color) {
+                    const stone = document.createElement('div');
+                    stone.classList.add('stone', color === 'B' ? 'black' : 'white');
+                    const block = getBlock(r, c, color);
+                    stone.innerText = block.liberties <= 1 ? "(>_<)" : "( •_•)";
+                    if (r > 0 && boardState[r-1][c] === color) stone.classList.add('connect-top');
+                    if (r < BOARD_SIZE - 1 && boardState[r+1][c] === color) stone.classList.add('connect-bottom');
+                    if (c > 0 && boardState[r][c-1] === color) stone.classList.add('connect-left');
+                    if (c < BOARD_SIZE - 1 && boardState[r][c+1] === color) stone.classList.add('connect-right');
+                    clickArea.appendChild(stone);
+                }
+            }
+        }
+
+        function calculateScore() {
+            if (!gameActive) return;
+            let blackStones = 0; let whiteStones = 0;
+            let blackTerritory = 0; let whiteTerritory = 0;
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (boardState[r][c] === 'B') blackStones++;
+                    if (boardState[r][c] === 'W') whiteStones++;
+                }
+            }
+            const visited = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(false));
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (boardState[r][c] === null && !visited[r][c]) {
+                        const area = getEmptyArea(r, c, visited);
+                        if (area.touchesBlack && !area.touchesWhite) blackTerritory += area.size;
+                        else if (area.touchesWhite && !area.touchesBlack) whiteTerritory += area.size;
+                    }
+                }
+            }
+            const totalBlack = blackStones + blackTerritory;
+            const totalWhite = whiteStones + whiteTerritory;
+            gameActive = false;
+            let resultMessage = `【遊戲結束，分數結算】\n\n⚫ 黑方總分：${totalBlack} 分\n⚪ 白方總分：${totalWhite} 分\n\n`;
+            if (totalBlack > totalWhite) { resultMessage += "🎉 黑方獲勝！"; statusElement.innerText = "🏆 黑方獲勝！";
+            } else if (totalWhite > totalBlack) { resultMessage += "🎉 白方獲勝！"; statusElement.innerText = "🏆 白方獲勝！";
+            } else { resultMessage += "平手！"; statusElement.innerText = "🤝 平手！"; }
+            alert(resultMessage);
+        }
+
+        function getEmptyArea(startR, startC, globalVisited) {
+            const queue = [[startR, startC]];
+            let size = 0; let touchesBlack = false; let touchesWhite = false;
+            const localVisited = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(false));
+            localVisited[startR][startC] = true; globalVisited[startR][startC] = true;
+            while (queue.length > 0) {
+                const [r, c] = queue.shift(); size++;
+                const neighbors = [[r-1, c], [r+1, c], [r, c-1], [r, c+1]];
+                for (const [nr, nc] of neighbors) {
+                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                        if (boardState[nr][nc] === 'B') touchesBlack = true;
+                        else if (boardState[nr][nc] === 'W') touchesWhite = true;
+                        else if (boardState[nr][nc] === null && !localVisited[nr][nc]) {
+                            localVisited[nr][nc] = true; globalVisited[nr][nc] = true; queue.push([nr, nc]);
+                        }
+                    }
+                }
+            }
+            return { size, touchesBlack, touchesWhite };
+        }
+
+        initGame();
+    </script>
+</body>
+</html>
